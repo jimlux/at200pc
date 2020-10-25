@@ -7,6 +7,11 @@
 # License (GPL), see http://www.opensource.org.
 # Note that there is NO WARRANTY AT ALL.  USE AT YOUR OWN RISK!!
 
+# modified by jimlux, 24 Oct 2020
+# split AT200 interface from GUI
+
+
+
 # Thanks to Chris, KB3CS, for additional code and features.
 #
 # adjusted SWR Threshold radiobuttons implementation            KB3CS 02/20/2010
@@ -25,11 +30,81 @@
 #  Full Tune			Start a full tuning search
 #  1.1, 1.3, 1.5, 1.7, 2.0, 2.5, 3.0
 #                       Set / Show SWR autotuning threshold
-
-# jimlux 7 August 2020 - added a 9.0 to list of SWRs - The LDG AT200 can return 7 as the SWR index
-# contrary to what the 1.7 doc says. I don't knoow what the actual number is.
-
 # Please see the documentation for the AT-200PC or AT-200 Pro to understand this tuner.
+
+PREAMBLE_BYTE = 165
+
+REQ_NOOP = 0
+REQ_INDUP = 1
+REQ_INDDN = 2
+REQ_CAPUP = 3
+REQ_CAPDN = 4
+REQ_MEMTUNE = 5
+REQ_FULLTUNE = 6
+REQ_HIZ = 8
+REQ_LOZ = 9
+REQ_ANT1 = 10
+REQ_ANT2 = 11
+
+REQ_ALLUPDATE = 40
+REQ_VERSION = 41
+REQ_ARM_CLEAR = 42
+REQ_CLEAR_MEM = 43
+REQ_TUNER_STANDBY = 44
+REQ_TUNER_ACTIVE = 45
+REQ_MANUAL_STORE = 46       # store current L & C at table corresponding to last freq read
+REQ_SWR11 = 50              # tune thresholds
+REQ_SWR13 = 51
+REQ_SWR15 = 52
+REQ_SWR17 = 53
+REQ_SWR20 = 54
+REQ_SWR25 = 55
+REQ_SWR30 = 56
+REQ_RESET = 57              # reset all the relays to zero
+REQ_AUTO_ON = 58
+REQ_AUTO_OFF = 59
+REQ_FWD_PWR = 60            # get fwd pwr measurement
+REQ_REV_PWR = 61            # get rev pwr measurement
+REQ_SWR = 62                # get Current SWR
+REQ_UPDATE_ON = 63
+REQ_UPDATE_OFF = 64
+REQ_SET_IND = 65
+REQ_SET_CAP = 66
+REQ_SET_FREQ = 67
+REQ_MEM_DUMP = 68
+
+
+
+CMD_NOOP = 0
+CMD_INDVAL = 1
+CMD_CAPVAL = 2
+CMD_HILOZ = 3
+CMD_ANTENNA = 4           # byte 2 is either 1 or 2
+CMD_FWDPWR = 5
+
+CMD_REVPWR = 18
+CMD_SWR = 6
+CMD_TXFREQ =7
+CMD_TUNEPASS = 9
+CMD_TUNEFAIL = 10
+CMD_VERSION = 11
+CMD_CLEAR_DDONE = 12
+CMD_INSTANDBY = 13
+CMD_ACTIVE = 14
+CMD_STORE_OK = 15
+CMD_SWRTHRESH = 16
+
+SWR_ReturnValues = [1.1,1.3,1.5,1.7,2.0,2.5,3.0]
+
+CMD_AUTO_STATUS = 17
+CMD_UPDATE_STATUS = 19
+
+CMD_VAL_DISABLE = 0
+CMD_VAL_ENABLE = 1
+
+
+
+
 
 import sys, time, math, traceback
 
@@ -38,13 +113,13 @@ from tkinter import messagebox
 
 from types import *
 
-DEBUG = 1
+DEBUG = 0
 
 # This is the serial port name.  You probably need to change it:
 if sys.platform[0:3] == "win":
   TTY_NAME = "COM4"		# Windows name of serial port for the AT-200PC
 else:
-  TTY_NAME = "/dev/cu.usbserial-AG0JR13N"	# Linux name of serial port for the AT-200PC
+  TTY_NAME = "/dev/ttyUSB0"	# Linux name of serial port for the AT-200PC
 
 # These are other AT-200PC parameters you can set:
 REQ_LIVEUPDATE = 63			# Send power and swr when RF is present: ON=63, OFF=64
@@ -196,11 +271,7 @@ class BaseRadioButtons(BaseButton):		# A row of radio buttons
   def __call__(self):
     self.command(self)
   def DisplayIndex(self, index):
-    try:
-        btn = self.button_list[index]
-    except IndexError:
-        print("Display Index error %d %d"%(index,len(self.button_list)))
-        print(self.button_list)
+    btn = self.button_list[index]
     var = btn.the_value
     self.var.set(var)
   def GetIndex(self):
@@ -236,7 +307,7 @@ class Application(tkinter.Tk):
     frm.pack(side='bottom', anchor='s', expand=1, fill='both')
     id = tkinter.Label(frm, font=FONT, anchor='w', text='SWR Threshold')
     id.pack(side='left', pady=6, padx=8, fill='y')
-    labels = (1.1, 1.3, 1.5, 1.7, 2.0, 2.5, 3.0,9.0)	# req 50 thru 56
+    labels = (1.1, 1.3, 1.5, 1.7, 2.0, 2.5, 3.0)	# req 50 thru 56
     self.swrButns = BaseRadioButtons(frm, self.OnButtonSwr, labels, None, 1)
     
     # Create a row of buttons
@@ -366,6 +437,8 @@ class Application(tkinter.Tk):
 
     self.running = 1
 
+
+
   def main(self):
     # Open the serial port, waiting if necessary.
     while not self.serial and self.running:
@@ -396,6 +469,7 @@ class Application(tkinter.Tk):
         break
       self.Read()			# Receive the current state of the AT-200PC
       self.update()
+
     if not self.running:
       return
     # Correct state has been received
@@ -494,6 +568,8 @@ class Application(tkinter.Tk):
         byte2 = self.rx_byte2
         if DEBUG:
           print('Received', byte1, byte2, byte3)
+
+          
         if byte1 > 19:	# Impossible command value
           continue
         if byte1 == 9:				# Tune pass
@@ -592,6 +668,7 @@ class Application(tkinter.Tk):
 #      s = s + 'Copyright (C) 2008-2010 by James C. Ahlstrom, N2ADR. All rights reserved.\n\n'
       s = '\nCopyright (C) 2008-2010 by James C. Ahlstrom, N2ADR. All rights reserved.\n\n'
       s = s + 'Copyright (C) 2019 by Christopher Sylvain, KB3CS. All rights reserved.\n\n'
+      s = s + 'Copyright (C) 2020 by James Lux, W6RMK. All rights reserved.\n\n'
       s = s + 'This free software is licensed for use under the GNU General Public License (GPL),\n'
       s = s + 'see http://opensource.org/licenses/alphabetical \n\n'
       s = s + 'Note that there is NO WARRANTY AT ALL. USE AT YOUR OWN RISK!!\n'
